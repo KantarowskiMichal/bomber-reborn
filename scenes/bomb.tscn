@@ -1,0 +1,22 @@
+[gd_scene load_steps=3 format=3 uid="uid://c3bomb0000001"]
+
+[ext_resource type="Script" path="res://scripts/bomb.gd" id="1_bomb"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_bomb"]
+size = Vector2(48, 48)
+
+[node name="Bomb" type="Area2D"]
+z_index = 5
+collision_layer = 4
+collision_mask = 0
+script = ExtResource("1_bomb")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("RectangleShape2D_bomb")
+
+[node name="ColorRect" type="ColorRect" parent="."]
+offset_left = -24.0
+offset_top = -24.0
+offset_right = 24.0
+offset_bottom = 24.0
+color = Color(0.1, 0.1, 0.1, 1)

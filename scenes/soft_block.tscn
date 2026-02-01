@@ -1,0 +1,20 @@
+[gd_scene load_steps=3 format=3 uid="uid://c3softblock001"]
+
+[ext_resource type="Script" path="res://scripts/soft_block.gd" id="1_soft"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_soft"]
+size = Vector2(64, 64)
+
+[node name="SoftBlock" type="StaticBody2D"]
+collision_layer = 1
+collision_mask = 0
+script = ExtResource("1_soft")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(32, 32)
+shape = SubResource("RectangleShape2D_soft")
+
+[node name="ColorRect" type="ColorRect" parent="."]
+offset_right = 64.0
+offset_bottom = 64.0
+color = Color(0.6, 0.4, 0.2, 1)
