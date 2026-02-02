@@ -27,6 +27,9 @@ signal died(player: Player)
 ## Player identifier for input mapping and color assignment
 enum PlayerNumber { PLAYER_1, PLAYER_2 }
 
+## Types of curses (negative powerups)
+enum CurseType { NONE, SPEED, INVERT, BOMBS }
+
 # =============================================================================
 # EXPORTS
 # =============================================================================
@@ -35,10 +38,10 @@ enum PlayerNumber { PLAYER_1, PLAYER_2 }
 @export var player_number: PlayerNumber = PlayerNumber.PLAYER_1
 
 ## Maximum number of bombs this player can have active at once
-@export var max_bombs := 1
+@export var max_bombs := 5
 
 ## How many tiles this player's bombs explode in each direction
-@export var bomb_range := 2
+@export var bomb_range := 1
 
 # =============================================================================
 # STATE
@@ -54,7 +57,25 @@ var current_bombs := 0
 var grid_pos := Vector2i.ZERO
 
 ## Whether this player can kick bombs
-var has_kick := false
+var has_kick := true
+
+## Whether this player can throw bombs
+var has_throw := true
+
+## Movement speed multiplier (lower = faster, stacks multiplicatively)
+var speed_multiplier := 1.0
+
+## Last movement direction for throw targeting
+var facing_direction := Vector2i.DOWN
+
+## Currently active curse type (NONE if no curse)
+var active_curse: CurseType = CurseType.NONE
+
+## Time remaining on current curse
+var _curse_timer := 0.0
+
+## Timer for auto-bomb placement during BOMBS curse
+var _curse_bomb_timer := 0.0
 
 ## Whether this player is still in the game
 var is_alive := true
@@ -90,8 +111,14 @@ func _process(delta: float) -> void:
 	# Tick down movement cooldown
 	_move_timer = maxf(0.0, _move_timer - delta)
 
+	# Handle curse timer
+	_handle_curse_timer(delta)
+
 	_handle_movement()
 	_handle_bomb_placement()
+
+	# Handle curse effects
+	_handle_curse_effects(delta)
 
 
 # =============================================================================
@@ -138,36 +165,67 @@ func kill() -> void:
 	died.emit(self)
 
 
+## Applies a curse to this player.
+## @param curse_type The type of curse to apply
+func apply_curse(curse_type: CurseType) -> void:
+	active_curse = curse_type
+	_curse_timer = GameConstants.CURSE_DURATION
+	_curse_bomb_timer = 0.0
+	_log("Curse applied: %s (%.1fs)" % [CurseType.keys()[curse_type], GameConstants.CURSE_DURATION])
+
+
+## Returns true if a curse is currently active.
+func has_active_curse() -> bool:
+	return active_curse != CurseType.NONE
+
+
+## Clears the active curse.
+func _clear_curse() -> void:
+	var old_curse := active_curse
+	active_curse = CurseType.NONE
+	_curse_timer = 0.0
+	_curse_bomb_timer = 0.0
+	_log("Curse expired: %s" % CurseType.keys()[old_curse])
+
+
 # =============================================================================
 # PRIVATE - INPUT HANDLING
 # =============================================================================
 
 ## Returns the movement direction based on currently pressed keys.
 ## Player 1 uses arrow keys, Player 2 uses WASD.
+## If INVERT curse is active, directions are reversed.
 ## @return Direction vector or Vector2i.ZERO if no movement key pressed
 func _get_movement_direction() -> Vector2i:
+	var direction := Vector2i.ZERO
+
 	match player_number:
 		PlayerNumber.PLAYER_1:
 			# Arrow keys for Player 1
 			if Input.is_action_pressed("ui_up"):
-				return Vector2i.UP
-			if Input.is_action_pressed("ui_down"):
-				return Vector2i.DOWN
-			if Input.is_action_pressed("ui_left"):
-				return Vector2i.LEFT
-			if Input.is_action_pressed("ui_right"):
-				return Vector2i.RIGHT
+				direction = Vector2i.UP
+			elif Input.is_action_pressed("ui_down"):
+				direction = Vector2i.DOWN
+			elif Input.is_action_pressed("ui_left"):
+				direction = Vector2i.LEFT
+			elif Input.is_action_pressed("ui_right"):
+				direction = Vector2i.RIGHT
 		PlayerNumber.PLAYER_2:
 			# WASD for Player 2
 			if Input.is_physical_key_pressed(KEY_W):
-				return Vector2i.UP
-			if Input.is_physical_key_pressed(KEY_S):
-				return Vector2i.DOWN
-			if Input.is_physical_key_pressed(KEY_A):
-				return Vector2i.LEFT
-			if Input.is_physical_key_pressed(KEY_D):
-				return Vector2i.RIGHT
-	return Vector2i.ZERO
+				direction = Vector2i.UP
+			elif Input.is_physical_key_pressed(KEY_S):
+				direction = Vector2i.DOWN
+			elif Input.is_physical_key_pressed(KEY_A):
+				direction = Vector2i.LEFT
+			elif Input.is_physical_key_pressed(KEY_D):
+				direction = Vector2i.RIGHT
+
+	# Invert controls if cursed
+	if active_curse == CurseType.INVERT and direction != Vector2i.ZERO:
+		direction = -direction
+
+	return direction
 
 
 ## Checks if the bomb placement key was just pressed.
@@ -201,7 +259,11 @@ func _handle_movement() -> void:
 	var direction := _get_movement_direction()
 	if direction != Vector2i.ZERO and _try_move(direction):
 		# Reset cooldown on successful move
-		_move_timer = GameConstants.PLAYER_MOVE_COOLDOWN
+		var effective_speed := speed_multiplier
+		# Apply curse speed if active (makes you way too fast)
+		if active_curse == CurseType.SPEED:
+			effective_speed *= GameConstants.CURSE_SPEED_MULTIPLIER
+		_move_timer = GameConstants.PLAYER_MOVE_COOLDOWN * effective_speed
 
 
 ## Attempts to move in the specified direction.
@@ -211,6 +273,9 @@ func _handle_movement() -> void:
 func _try_move(direction: Vector2i) -> bool:
 	if not arena:
 		return false
+
+	# Track facing direction for throw ability
+	facing_direction = direction
 
 	var target_pos := grid_pos + direction
 
@@ -235,8 +300,15 @@ func _try_move(direction: Vector2i) -> bool:
 
 ## Handles bomb placement input.
 ## Places a bomb at the player's current position if possible.
+## If player has throw ability and is standing on a bomb, throws it instead.
 func _handle_bomb_placement() -> void:
 	if not _is_bomb_key_just_pressed():
+		return
+
+	# If we have throw ability and are standing on a bomb, throw it
+	if has_throw and arena and arena.has_bomb_at(grid_pos):
+		_log("Throwing bomb at %s in direction %s" % [grid_pos, facing_direction])
+		arena.throw_bomb(grid_pos, facing_direction)
 		return
 
 	# Check if we've reached our bomb limit
@@ -247,6 +319,52 @@ func _handle_bomb_placement() -> void:
 	# Try to place bomb at current position
 	if arena and arena.can_place_bomb(grid_pos):
 		_log("Placing bomb at %s" % grid_pos)
+		bomb_placed.emit(grid_pos)
+
+
+# =============================================================================
+# PRIVATE - CURSE HANDLING
+# =============================================================================
+
+## Ticks down the curse timer and clears the curse when it expires.
+func _handle_curse_timer(delta: float) -> void:
+	if active_curse == CurseType.NONE:
+		return
+
+	_curse_timer -= delta
+	if _curse_timer <= 0:
+		_clear_curse()
+
+
+## Handles ongoing curse effects (like auto-bomb placement).
+func _handle_curse_effects(delta: float) -> void:
+	if active_curse != CurseType.BOMBS:
+		return
+
+	# Auto-place/throw bombs at interval
+	_curse_bomb_timer -= delta
+	if _curse_bomb_timer <= 0:
+		_curse_bomb_timer = GameConstants.CURSE_BOMBS_INTERVAL
+		_curse_auto_bomb()
+
+
+## Automatically places or throws a bomb (BOMBS curse effect).
+## Respects all normal bomb placement rules (bomb limit, valid position, etc.)
+func _curse_auto_bomb() -> void:
+	if not arena:
+		return
+
+	# If standing on a bomb and have throw, throw it in facing direction
+	if has_throw and arena.has_bomb_at(grid_pos):
+		arena.throw_bomb(grid_pos, facing_direction)
+		return
+
+	# Check bomb limit (same as normal placement)
+	if current_bombs >= max_bombs:
+		return
+
+	# Try to place a bomb at current position (same rules as normal placement)
+	if arena.can_place_bomb(grid_pos):
 		bomb_placed.emit(grid_pos)
 
 

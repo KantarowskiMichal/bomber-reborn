@@ -96,7 +96,7 @@ func get_player_spawn_position(player_index: int) -> Vector2:
 	var h := GameConstants.GRID_HEIGHT
 
 	# Spawn positions in each corner of the arena
-	var positions := [
+	var positions: Array[Vector2i] = [
 		Vector2i(1, 1),          # Top-left (Player 1)
 		Vector2i(w - 2, h - 2),  # Bottom-right (Player 2)
 		Vector2i(w - 2, 1),      # Top-right (Player 3)
@@ -185,6 +185,56 @@ func can_bomb_move_to(pos: Vector2i) -> bool:
 
 	# Cannot move into a player
 	return not _has_player_at(pos)
+
+
+## Returns the cell type at the given position.
+## @param pos Grid position to check
+## @return CellType at the position, or HARD_BLOCK if out of bounds
+func get_cell_type(pos: Vector2i) -> CellType:
+	if not _is_in_bounds(pos):
+		return CellType.HARD_BLOCK
+	return grid[pos.x][pos.y] as CellType
+
+
+## Checks if a position is within the arena bounds.
+## @param pos Grid position to check
+## @return True if the position is valid
+func is_in_bounds(pos: Vector2i) -> bool:
+	return _is_in_bounds(pos)
+
+
+## Initiates a throw on a bomb, sending it flying in the specified direction.
+## @param pos Current grid position of the bomb to throw
+## @param direction Direction vector to throw the bomb (e.g., Vector2i.RIGHT)
+func throw_bomb(pos: Vector2i, direction: Vector2i) -> void:
+	if not bombs.has(pos):
+		_log("No bomb to throw at %s" % pos, GameConstants.LogLevel.WARNING)
+		return
+
+	var bomb: Bomb = bombs[pos]
+
+	# Clear the bomb from its current position in the grid
+	if _is_in_bounds(pos):
+		grid[pos.x][pos.y] = CellType.EMPTY
+	bombs.erase(pos)
+
+	# Connect movement tracking if not already connected
+	if not bomb.moved.is_connected(_on_bomb_moved):
+		bomb.moved.connect(_on_bomb_moved.bind(bomb))
+
+	bomb.start_flying(direction, self)
+	_log("Bomb at %s thrown in direction %s" % [pos, direction])
+
+
+## Called when a thrown bomb lands at a position.
+## Registers the bomb in the grid and tracking dictionary.
+## @param pos Grid position where the bomb landed
+## @param bomb The bomb that landed
+func on_bomb_landed(pos: Vector2i, bomb: Bomb) -> void:
+	if _is_in_bounds(pos):
+		grid[pos.x][pos.y] = CellType.BOMB
+	bombs[pos] = bomb
+	_log("Bomb landed at %s" % pos, GameConstants.LogLevel.DEBUG)
 
 
 # =============================================================================
@@ -306,16 +356,47 @@ func _on_soft_block_destroyed(pos: Vector2i) -> void:
 # =============================================================================
 
 ## Spawns a random power-up at the specified position.
-## Type is determined by weighted random selection based on POWERUP_EXTRA_BOMB_WEIGHT.
+## Type is determined by cumulative weighted random selection.
 func _spawn_powerup(pos: Vector2i) -> void:
 	var powerup: Powerup = PowerupScene.instantiate()
 
-	# Select random power-up type based on configured weight
+	# Select random power-up type based on cumulative weights
+	var roll := randf()
 	var powerup_type: Powerup.Type
-	if randf() < GameConstants.POWERUP_EXTRA_BOMB_WEIGHT:
+
+	var cumulative := 0.0
+
+	# Positive powerups
+	cumulative += GameConstants.POWERUP_EXTRA_BOMB_WEIGHT
+	if roll < cumulative:
 		powerup_type = Powerup.Type.EXTRA_BOMB
 	else:
-		powerup_type = Powerup.Type.KICK
+		cumulative += GameConstants.POWERUP_FIRE_RANGE_WEIGHT
+		if roll < cumulative:
+			powerup_type = Powerup.Type.FIRE_RANGE
+		else:
+			cumulative += GameConstants.POWERUP_SPEED_WEIGHT
+			if roll < cumulative:
+				powerup_type = Powerup.Type.SPEED
+			else:
+				cumulative += GameConstants.POWERUP_THROW_WEIGHT
+				if roll < cumulative:
+					powerup_type = Powerup.Type.THROW
+				else:
+					cumulative += GameConstants.POWERUP_KICK_WEIGHT
+					if roll < cumulative:
+						powerup_type = Powerup.Type.KICK
+					# Curses (negative powerups)
+					else:
+						cumulative += GameConstants.CURSE_SPEED_WEIGHT
+						if roll < cumulative:
+							powerup_type = Powerup.Type.CURSE_SPEED
+						else:
+							cumulative += GameConstants.CURSE_INVERT_WEIGHT
+							if roll < cumulative:
+								powerup_type = Powerup.Type.CURSE_INVERT
+							else:
+								powerup_type = Powerup.Type.CURSE_BOMBS
 
 	powerup.setup(pos, powerup_type)
 	powerup.collected.connect(_on_powerup_removed.bind(pos))
@@ -361,7 +442,13 @@ func _on_bomb_exploded(pos: Vector2i, explosion_range: int) -> void:
 
 ## Called when a kicked bomb moves from one tile to another.
 ## Updates the grid state and bomb tracking dictionary.
+## Flying bombs are ignored - they're airborne and don't affect the grid until landing.
 func _on_bomb_moved(old_pos: Vector2i, new_pos: Vector2i, bomb: Bomb) -> void:
+	# Flying bombs are airborne - don't register them in the grid
+	# They get registered when they land via on_bomb_landed()
+	if bomb.is_flying:
+		return
+
 	# Clear old position in grid
 	if _is_in_bounds(old_pos) and grid[old_pos.x][old_pos.y] == CellType.BOMB:
 		grid[old_pos.x][old_pos.y] = CellType.EMPTY

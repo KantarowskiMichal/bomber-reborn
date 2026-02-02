@@ -34,8 +34,15 @@ const LOG_TAG := "Powerup"
 
 ## Available power-up types
 enum Type {
-	EXTRA_BOMB,  ## Increases max bomb capacity
-	KICK,        ## Allows kicking bombs
+	EXTRA_BOMB,   ## Increases max bomb capacity
+	KICK,         ## Allows kicking bombs
+	FIRE_RANGE,   ## Increases bomb explosion range
+	SPEED,        ## Increases movement speed
+	THROW,        ## Allows throwing bombs
+	# Curses (negative powerups)
+	CURSE_SPEED,  ## Makes player too fast to control
+	CURSE_INVERT, ## Inverts player controls
+	CURSE_BOMBS,  ## Auto-places bombs uncontrollably
 }
 
 # =============================================================================
@@ -53,12 +60,43 @@ const VISUALS := {
 		"color": GameConstants.POWERUP_KICK_COLOR,
 		"label": "K",   # "K" for Kick
 	},
+	Type.FIRE_RANGE: {
+		"color": GameConstants.POWERUP_FIRE_RANGE_COLOR,
+		"label": "F",   # "F" for Fire range
+	},
+	Type.SPEED: {
+		"color": GameConstants.POWERUP_SPEED_COLOR,
+		"label": "S",   # "S" for Speed
+	},
+	Type.THROW: {
+		"color": GameConstants.POWERUP_THROW_COLOR,
+		"label": "T",   # "T" for Throw
+	},
+	# Curses (negative powerups)
+	Type.CURSE_SPEED: {
+		"color": GameConstants.CURSE_SPEED_COLOR,
+		"label": "!S",  # "!S" for curse Speed
+	},
+	Type.CURSE_INVERT: {
+		"color": GameConstants.CURSE_INVERT_COLOR,
+		"label": "!I",  # "!I" for curse Invert
+	},
+	Type.CURSE_BOMBS: {
+		"color": GameConstants.CURSE_BOMBS_COLOR,
+		"label": "!B",  # "!B" for curse Bombs
+	},
 }
 
 ## Display names for logging
 const TYPE_NAMES := {
 	Type.EXTRA_BOMB: "Extra Bomb",
 	Type.KICK: "Kick",
+	Type.FIRE_RANGE: "Fire Range",
+	Type.SPEED: "Speed",
+	Type.THROW: "Throw",
+	Type.CURSE_SPEED: "Curse: Speed",
+	Type.CURSE_INVERT: "Curse: Invert",
+	Type.CURSE_BOMBS: "Curse: Bombs",
 }
 
 # =============================================================================
@@ -176,12 +214,22 @@ func _on_body_entered(body: Node2D) -> void:
 	if not body is Player:
 		return
 
-	_is_collected = true
 	var player := body as Player
+
+	# Curses can't be picked up if player already has an active curse
+	if _is_curse() and player.has_active_curse():
+		return
+
+	_is_collected = true
 	_apply_effect(player)
 	_log("%s collected by Player %d at %s" % [get_type_name(), GameConstants.get_player_id(player.player_number), grid_pos])
 	collected.emit()
 	queue_free()
+
+
+## Returns true if this powerup is a curse (negative effect).
+func _is_curse() -> bool:
+	return type in [Type.CURSE_SPEED, Type.CURSE_INVERT, Type.CURSE_BOMBS]
 
 
 ## Applies the power-up effect to the collecting player.
@@ -195,6 +243,25 @@ func _apply_effect(player: Player) -> void:
 		Type.KICK:
 			player.has_kick = true
 			_log("Player %d gained kick ability" % player_id, GameConstants.LogLevel.DEBUG)
+		Type.FIRE_RANGE:
+			player.bomb_range += 1
+			_log("Player %d bomb range increased to %d" % [player_id, player.bomb_range], GameConstants.LogLevel.DEBUG)
+		Type.SPEED:
+			player.speed_multiplier *= 0.75
+			_log("Player %d speed multiplier now %.2f" % [player_id, player.speed_multiplier], GameConstants.LogLevel.DEBUG)
+		Type.THROW:
+			player.has_throw = true
+			_log("Player %d gained throw ability" % player_id, GameConstants.LogLevel.DEBUG)
+		# Curses
+		Type.CURSE_SPEED:
+			player.apply_curse(Player.CurseType.SPEED)
+			_log("Player %d cursed with hyper speed!" % player_id, GameConstants.LogLevel.DEBUG)
+		Type.CURSE_INVERT:
+			player.apply_curse(Player.CurseType.INVERT)
+			_log("Player %d cursed with inverted controls!" % player_id, GameConstants.LogLevel.DEBUG)
+		Type.CURSE_BOMBS:
+			player.apply_curse(Player.CurseType.BOMBS)
+			_log("Player %d cursed with bomb spam!" % player_id, GameConstants.LogLevel.DEBUG)
 
 
 # =============================================================================

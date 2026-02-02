@@ -42,9 +42,25 @@ const SOFT_BLOCK_SPAWN_CHANCE := 0.7
 ## Probability (0.0-1.0) that a destroyed soft block drops a power-up
 const POWERUP_DROP_CHANCE := 0.3
 
-## Probability threshold for EXTRA_BOMB vs KICK power-up selection
-## Values below this spawn EXTRA_BOMB, values above spawn KICK
-const POWERUP_EXTRA_BOMB_WEIGHT := 0.5
+## Power-up spawn weights (cumulative probability)
+const POWERUP_EXTRA_BOMB_WEIGHT := 0.20
+const POWERUP_FIRE_RANGE_WEIGHT := 0.20
+const POWERUP_SPEED_WEIGHT := 0.15
+const POWERUP_THROW_WEIGHT := 0.10
+const POWERUP_KICK_WEIGHT := 0.10
+## Curses (negative powerups)
+const CURSE_SPEED_WEIGHT := 0.10
+const CURSE_INVERT_WEIGHT := 0.08
+const CURSE_BOMBS_WEIGHT := 0.07
+
+## Duration of curse effects in seconds
+const CURSE_DURATION := 10.0
+
+## Speed multiplier for curse speed (lower = faster, this makes it extremely fast)
+const CURSE_SPEED_MULTIPLIER := 0.0625
+
+## Interval between auto-bomb placements during bomb curse
+const CURSE_BOMBS_INTERVAL := 0.05
 
 # =============================================================================
 # TIMING (in seconds)
@@ -65,6 +81,12 @@ const POWERUP_IMMUNITY_TIME := 0.6
 
 ## Minimum time between player movement inputs (controls movement speed)
 const PLAYER_MOVE_COOLDOWN := 0.12
+
+## Number of tiles a thrown bomb travels
+const BOMB_THROW_DISTANCE := 4
+
+## Delay between each tile when a bomb is flying (thrown)
+const BOMB_FLY_DELAY := 0.12
 
 # =============================================================================
 # VISUAL - PLAYER COLORS
@@ -91,6 +113,28 @@ const POWERUP_EXTRA_BOMB_COLOR := Color(0.2, 0.5, 1.0, 1.0)  # Blue
 
 ## Color for the "Kick" power-up
 const POWERUP_KICK_COLOR := Color(1.0, 0.6, 0.1, 1.0)  # Orange
+
+## Color for the "Fire Range" power-up
+const POWERUP_FIRE_RANGE_COLOR := Color(1.0, 0.3, 0.2, 1.0)  # Red/Orange
+
+## Color for the "Speed" power-up
+const POWERUP_SPEED_COLOR := Color(0.2, 0.9, 0.9, 1.0)  # Cyan
+
+## Color for the "Throw" power-up
+const POWERUP_THROW_COLOR := Color(0.9, 0.2, 0.9, 1.0)  # Purple
+
+# =============================================================================
+# VISUAL - CURSE (NEGATIVE POWERUP) COLORS
+# =============================================================================
+
+## Color for the "Curse Speed" power-up (makes you too fast)
+const CURSE_SPEED_COLOR := Color(0.8, 0.0, 0.0, 1.0)  # Dark Red
+
+## Color for the "Curse Invert" power-up (inverts controls)
+const CURSE_INVERT_COLOR := Color(0.5, 0.0, 0.5, 1.0)  # Dark Purple
+
+## Color for the "Curse Bombs" power-up (auto-places bombs)
+const CURSE_BOMBS_COLOR := Color(0.4, 0.4, 0.4, 1.0)  # Dark Gray
 
 # =============================================================================
 # UTILITY FUNCTIONS
