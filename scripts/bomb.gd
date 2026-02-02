@@ -70,11 +70,21 @@ var _fly_direction := Vector2i.ZERO
 ## Whether the fuse expired while airborne (should explode on landing)
 var _explode_on_landing := false
 
+## Pending color to apply when the node is ready
+var _pending_color: Color = Color(-1, -1, -1, -1)  # Invalid color means not set
+
+## Reference to the color rect for visual coloring
+@onready var _color_rect: ColorRect = $ColorRect
+
 # =============================================================================
 # LIFECYCLE
 # =============================================================================
 
 func _ready() -> void:
+	# Apply pending color if one was set before _ready
+	if _pending_color.r >= 0 and _color_rect:
+		_color_rect.color = _pending_color
+
 	# Start the fuse timer - bomb explodes when it expires
 	get_tree().create_timer(fuse_time).timeout.connect(_on_fuse_expired)
 	_log("Fuse started (%.1fs)" % fuse_time, GameConstants.LogLevel.DEBUG)
@@ -91,6 +101,14 @@ func setup(pos: Vector2i, range_value: int = 2) -> void:
 	grid_pos = pos
 	explosion_range = range_value
 	position = GameConstants.grid_to_world(pos)
+
+
+## Sets the bomb's visual color.
+## @param color The color to apply
+func set_color(color: Color) -> void:
+	_pending_color = color
+	if _color_rect:
+		_color_rect.color = color
 
 
 ## Forces the bomb to explode immediately (called during chain reactions).

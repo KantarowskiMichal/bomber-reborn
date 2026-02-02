@@ -136,13 +136,15 @@ func has_bomb_at(pos: Vector2i) -> bool:
 ## Places a new bomb at the specified grid position.
 ## @param pos Grid position where the bomb will be placed
 ## @param explosion_range How many tiles the explosion will spread in each direction
-func place_bomb(pos: Vector2i, explosion_range: int) -> void:
+## @param color Optional color for the bomb (defaults to dark gray)
+func place_bomb(pos: Vector2i, explosion_range: int, color: Color = Color(0.1, 0.1, 0.1, 1.0)) -> void:
 	if not can_place_bomb(pos):
 		_log("Cannot place bomb at %s - position blocked" % pos, GameConstants.LogLevel.WARNING)
 		return
 
 	var bomb: Bomb = BombScene.instantiate()
 	bomb.setup(pos, explosion_range)
+	bomb.set_color(color)
 	bomb.exploded.connect(_on_bomb_exploded)
 	add_child(bomb)
 	bombs[pos] = bomb

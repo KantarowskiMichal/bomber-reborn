@@ -92,7 +92,50 @@ var _move_timer := 0.0
 ## Tracks previous frame's bomb key state (for P2's Tab key)
 var _bomb_key_was_pressed := false
 
-@onready var _color_rect: ColorRect = $ColorRect
+@onready var _shape: Polygon2D = $Shape
+
+# =============================================================================
+# SHAPE DEFINITIONS
+# =============================================================================
+
+## Size of player shapes (radius from center)
+const SHAPE_SIZE := 18.0
+
+## Star shape (5-pointed) for Player 1
+static func _make_star() -> PackedVector2Array:
+	var points: Array[Vector2] = []
+	var outer_radius := SHAPE_SIZE
+	var inner_radius := SHAPE_SIZE * 0.4
+	for i in range(10):
+		var angle := (i * TAU / 10) - TAU / 4  # Start from top
+		var radius := outer_radius if i % 2 == 0 else inner_radius
+		points.append(Vector2(cos(angle) * radius, sin(angle) * radius))
+	return PackedVector2Array(points)
+
+## Triangle shape for Player 2
+static func _make_triangle() -> PackedVector2Array:
+	var points: Array[Vector2] = []
+	for i in range(3):
+		var angle := (i * TAU / 3) - TAU / 4  # Start from top
+		points.append(Vector2(cos(angle) * SHAPE_SIZE, sin(angle) * SHAPE_SIZE))
+	return PackedVector2Array(points)
+
+## Hexagon shape for Player 3
+static func _make_hexagon() -> PackedVector2Array:
+	var points: Array[Vector2] = []
+	for i in range(6):
+		var angle := (i * TAU / 6)  # Start from right
+		points.append(Vector2(cos(angle) * SHAPE_SIZE, sin(angle) * SHAPE_SIZE))
+	return PackedVector2Array(points)
+
+## Circle shape (12-sided) for Player 4
+static func _make_circle() -> PackedVector2Array:
+	var points: Array[Vector2] = []
+	var segments := 12
+	for i in range(segments):
+		var angle := i * TAU / segments
+		points.append(Vector2(cos(angle) * SHAPE_SIZE, sin(angle) * SHAPE_SIZE))
+	return PackedVector2Array(points)
 
 # =============================================================================
 # LIFECYCLE
@@ -129,9 +172,28 @@ func _process(delta: float) -> void:
 ## @param color The color to apply to the player's sprite
 func set_color(color: Color) -> void:
 	player_color = color
-	if _color_rect:
-		_color_rect.color = color
+	_setup_shape()
+	if _shape:
+		_shape.color = color
 	_log("Color set to %s" % get_color_name(), GameConstants.LogLevel.DEBUG)
+
+
+## Sets up the player's shape based on their player number.
+func _setup_shape() -> void:
+	if not _shape:
+		return
+
+	match player_number:
+		PlayerNumber.PLAYER_1:
+			_shape.polygon = _make_star()
+		PlayerNumber.PLAYER_2:
+			_shape.polygon = _make_triangle()
+		_:
+			# Future players: alternate between hexagon and circle
+			if GameConstants.get_player_id(player_number) % 2 == 1:
+				_shape.polygon = _make_hexagon()
+			else:
+				_shape.polygon = _make_circle()
 
 
 ## Returns the display name of this player's color.

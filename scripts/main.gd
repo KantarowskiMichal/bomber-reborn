@@ -98,7 +98,9 @@ func _setup_player(player: Player, number: Player.PlayerNumber, spawn_index: int
 func _on_player_bomb_placed(grid_pos: Vector2i, player: Player) -> void:
 	_log("Player %d placed bomb at %s" % [GameConstants.get_player_id(player.player_number), grid_pos], GameConstants.LogLevel.DEBUG)
 
-	_arena.place_bomb(grid_pos, player.bomb_range)
+	# Darken the player's color for the bomb
+	var bomb_color := player.player_color.darkened(0.3)
+	_arena.place_bomb(grid_pos, player.bomb_range, bomb_color)
 	player.increment_bomb_count()
 
 	# Connect bomb explosion to decrement player's bomb count when it explodes
