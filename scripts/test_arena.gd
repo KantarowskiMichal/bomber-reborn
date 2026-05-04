@@ -19,6 +19,7 @@ const TEST_GRID_HEIGHT := 15
 func _ready() -> void:
 	_log("Initializing TEST arena (%dx%d grid)" % [TEST_GRID_WIDTH, TEST_GRID_HEIGHT])
 	_generate_test_arena()
+	_place_special_tiles()
 	_spawn_all_powerups()
 	_log("Test arena generation complete")
 
@@ -68,7 +69,7 @@ func _generate_test_arena() -> void:
 		column.fill(CellType.EMPTY)
 		grid.append(column)
 
-	# Place border walls
+	# Place border walls and pillars
 	for x in range(w):
 		for y in range(h):
 			var pos := Vector2i(x, y)
@@ -83,7 +84,7 @@ func _generate_test_arena() -> void:
 	_place_soft_block_cluster(13, 5, 3, 2)
 	_place_soft_block_cluster(5, 10, 3, 2)
 	_place_soft_block_cluster(13, 10, 3, 2)
-	_place_soft_block_cluster(9, 7, 2, 2)
+	# Note: central cluster removed to make room for the conveyor loop
 
 	_log("Generated test arena with dimensions %dx%d" % [w, h])
 
@@ -107,6 +108,55 @@ func _place_soft_block_cluster(start_x: int, start_y: int, width: int, height: i
 			if _is_in_bounds(pos) and grid[x][y] == CellType.EMPTY:
 				_place_soft_block(pos)
 
+
+## Places all special tiles: holes, ice, and conveyors (including a loop).
+func _place_special_tiles() -> void:
+	# --- Ice strip (center-left) ---
+	_place_ice(Vector2i(5, 7))
+	_place_ice(Vector2i(6, 7))
+	_place_ice(Vector2i(7, 7))
+
+	# --- Hole strip (center-right) ---
+	_place_hole(Vector2i(14, 7))
+	_place_hole(Vector2i(15, 7))
+	_place_hole(Vector2i(16, 7))
+
+	# --- Individual conveyors: one of each direction ---
+	_place_conveyor(Vector2i(3, 5),  Vector2i.UP)
+	_place_conveyor(Vector2i(17, 5), Vector2i.DOWN)
+	_place_conveyor(Vector2i(10, 2), Vector2i.RIGHT)
+	_place_conveyor(Vector2i(10, 12), Vector2i.LEFT)
+
+	# --- Clockwise conveyor loop in the center ---
+	# Layout (9,5)→(11,5)→(11,9)→(9,9)→back
+	#
+	#   → → ↓
+	#   ↑   ↓
+	#   ↑   ↓
+	#   ↑   ↓
+	#   ↑ ← ←
+	#
+	# Top row (going right)
+	_place_conveyor(Vector2i(9,  5), Vector2i.RIGHT)
+	_place_conveyor(Vector2i(10, 5), Vector2i.RIGHT)
+	_place_conveyor(Vector2i(11, 5), Vector2i.DOWN)
+	# Right column (going down)
+	_place_conveyor(Vector2i(11, 6), Vector2i.DOWN)
+	_place_conveyor(Vector2i(11, 7), Vector2i.DOWN)
+	_place_conveyor(Vector2i(11, 8), Vector2i.DOWN)
+	_place_conveyor(Vector2i(11, 9), Vector2i.LEFT)
+	# Bottom row (going left)
+	_place_conveyor(Vector2i(10, 9), Vector2i.LEFT)
+	_place_conveyor(Vector2i(9,  9), Vector2i.UP)
+	# Left column (going up)
+	_place_conveyor(Vector2i(9, 8), Vector2i.UP)
+	_place_conveyor(Vector2i(9, 7), Vector2i.UP)
+	_place_conveyor(Vector2i(9, 6), Vector2i.UP)
+
+
+# =============================================================================
+# PRIVATE - POWERUP SPAWNING
+# =============================================================================
 
 ## Spawns one of each powerup type in a row for testing.
 func _spawn_all_powerups() -> void:

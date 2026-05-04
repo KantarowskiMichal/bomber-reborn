@@ -92,49 +92,54 @@ var _move_timer := 0.0
 ## Tracks previous frame's bomb key state (for P2's Tab key)
 var _bomb_key_was_pressed := false
 
+## Whether the player is currently sliding on ice
+var is_sliding := false
+
+## Visual movement speed in px/s for smooth motion mode (matches move cooldown)
+var _smooth_speed := 0.0
+
+## Direction the player is sliding (when on ice)
+var _slide_direction := Vector2i.ZERO
+
 @onready var _shape: Polygon2D = $Shape
+@onready var _collision_shape: CollisionShape2D = $CollisionShape2D
 
 # =============================================================================
 # SHAPE DEFINITIONS
 # =============================================================================
 
-## Size of player shapes (radius from center)
-const SHAPE_SIZE := 18.0
-
 ## Star shape (5-pointed) for Player 1
-static func _make_star() -> PackedVector2Array:
+static func _make_star(r: float) -> PackedVector2Array:
 	var points: Array[Vector2] = []
-	var outer_radius := SHAPE_SIZE
-	var inner_radius := SHAPE_SIZE * 0.4
+	var inner := r * 0.4
 	for i in range(10):
-		var angle := (i * TAU / 10) - TAU / 4  # Start from top
-		var radius := outer_radius if i % 2 == 0 else inner_radius
-		points.append(Vector2(cos(angle) * radius, sin(angle) * radius))
+		var angle := (i * TAU / 10) - TAU / 4
+		var rad := r if i % 2 == 0 else inner
+		points.append(Vector2(cos(angle) * rad, sin(angle) * rad))
 	return PackedVector2Array(points)
 
 ## Triangle shape for Player 2
-static func _make_triangle() -> PackedVector2Array:
+static func _make_triangle(r: float) -> PackedVector2Array:
 	var points: Array[Vector2] = []
 	for i in range(3):
-		var angle := (i * TAU / 3) - TAU / 4  # Start from top
-		points.append(Vector2(cos(angle) * SHAPE_SIZE, sin(angle) * SHAPE_SIZE))
+		var angle := (i * TAU / 3) - TAU / 4
+		points.append(Vector2(cos(angle) * r, sin(angle) * r))
 	return PackedVector2Array(points)
 
 ## Hexagon shape for Player 3
-static func _make_hexagon() -> PackedVector2Array:
+static func _make_hexagon(r: float) -> PackedVector2Array:
 	var points: Array[Vector2] = []
 	for i in range(6):
-		var angle := (i * TAU / 6)  # Start from right
-		points.append(Vector2(cos(angle) * SHAPE_SIZE, sin(angle) * SHAPE_SIZE))
+		var angle := i * TAU / 6
+		points.append(Vector2(cos(angle) * r, sin(angle) * r))
 	return PackedVector2Array(points)
 
 ## Circle shape (12-sided) for Player 4
-static func _make_circle() -> PackedVector2Array:
+static func _make_circle(r: float) -> PackedVector2Array:
 	var points: Array[Vector2] = []
-	var segments := 12
-	for i in range(segments):
-		var angle := i * TAU / segments
-		points.append(Vector2(cos(angle) * SHAPE_SIZE, sin(angle) * SHAPE_SIZE))
+	for i in range(12):
+		var angle := i * TAU / 12
+		points.append(Vector2(cos(angle) * r, sin(angle) * r))
 	return PackedVector2Array(points)
 
 # =============================================================================
@@ -144,6 +149,8 @@ static func _make_circle() -> PackedVector2Array:
 func _ready() -> void:
 	_log_tag = "Player%d" % GameConstants.get_player_id(player_number)
 	grid_pos = GameConstants.world_to_grid(position)
+	_smooth_speed = float(GameConstants.TILE_SIZE) / GameConstants.PLAYER_MOVE_COOLDOWN
+	_apply_hitbox_size()
 	_log("Initialized at grid position %s" % grid_pos)
 
 
@@ -157,11 +164,20 @@ func _process(delta: float) -> void:
 	# Handle curse timer
 	_handle_curse_timer(delta)
 
-	_handle_movement()
+	if GameConstants.MOVEMENT_MODE == GameConstants.MovementMode.FREE:
+		_handle_free_movement(delta)
+	else:
+		_handle_movement()
+
 	_handle_bomb_placement()
 
 	# Handle curse effects
 	_handle_curse_effects(delta)
+
+	# Smooth motion: lerp visual position toward logical grid position
+	if GameConstants.MOVEMENT_MODE == GameConstants.MovementMode.SMOOTH and _smooth_speed > 0.0:
+		var target := GameConstants.grid_to_world(grid_pos)
+		position = position.move_toward(target, _smooth_speed * delta)
 
 
 # =============================================================================
@@ -178,22 +194,35 @@ func set_color(color: Color) -> void:
 	_log("Color set to %s" % get_color_name(), GameConstants.LogLevel.DEBUG)
 
 
-## Sets up the player's shape based on their player number.
+## Sets up the player's visual polygon based on their player number and current hitbox size.
 func _setup_shape() -> void:
 	if not _shape:
 		return
 
+	var r := GameConstants.PLAYER_HITBOX_SIZE * 0.5
 	match player_number:
 		PlayerNumber.PLAYER_1:
-			_shape.polygon = _make_star()
+			_shape.polygon = _make_star(r)
 		PlayerNumber.PLAYER_2:
-			_shape.polygon = _make_triangle()
+			_shape.polygon = _make_triangle(r)
 		_:
-			# Future players: alternate between hexagon and circle
 			if GameConstants.get_player_id(player_number) % 2 == 1:
-				_shape.polygon = _make_hexagon()
+				_shape.polygon = _make_hexagon(r)
 			else:
-				_shape.polygon = _make_circle()
+				_shape.polygon = _make_circle(r)
+
+
+## Applies the current PLAYER_HITBOX_SIZE from GameConstants to this player's collision
+## shape and visual polygon so both stay in sync.
+func _apply_hitbox_size() -> void:
+	if _collision_shape:
+		if _collision_shape.shape is CircleShape2D:
+			(_collision_shape.shape as CircleShape2D).radius = GameConstants.PLAYER_HITBOX_SIZE * 0.5
+		else:
+			var circle := CircleShape2D.new()
+			circle.radius = GameConstants.PLAYER_HITBOX_SIZE * 0.5
+			_collision_shape.shape = circle
+	_setup_shape()
 
 
 ## Returns the display name of this player's color.
@@ -313,19 +342,31 @@ func _is_bomb_key_just_pressed() -> bool:
 
 ## Processes movement input and attempts to move if cooldown allows.
 ## Movement is grid-based (snap to tile centers).
+## When sliding on ice, continues in the slide direction automatically.
 func _handle_movement() -> void:
 	# Respect movement cooldown for consistent speed
 	if _move_timer > 0:
 		return
 
-	var direction := _get_movement_direction()
+	# When sliding on ice, use slide direction instead of input
+	var direction: Vector2i
+	if is_sliding and _slide_direction != Vector2i.ZERO:
+		direction = _slide_direction
+	else:
+		direction = _get_movement_direction()
+
 	if direction != Vector2i.ZERO and _try_move(direction):
 		# Reset cooldown on successful move
 		var effective_speed := speed_multiplier
 		# Apply curse speed if active (makes you way too fast)
 		if active_curse == CurseType.SPEED:
 			effective_speed *= GameConstants.CURSE_SPEED_MULTIPLIER
-		_move_timer = GameConstants.PLAYER_MOVE_COOLDOWN * effective_speed
+		# Slide faster on ice
+		if is_sliding:
+			effective_speed *= 0.5
+		var actual_cooldown := GameConstants.PLAYER_MOVE_COOLDOWN * effective_speed
+		_move_timer = actual_cooldown
+		_smooth_speed = float(GameConstants.TILE_SIZE) / actual_cooldown
 
 
 ## Attempts to move in the specified direction.
@@ -350,10 +391,154 @@ func _try_move(direction: Vector2i) -> bool:
 	# Try to walk to target tile
 	if arena.is_tile_walkable(target_pos):
 		grid_pos = target_pos
-		position = GameConstants.grid_to_world(grid_pos)
+		if GameConstants.MOVEMENT_MODE == GameConstants.MovementMode.SNAP:
+			position = GameConstants.grid_to_world(grid_pos)
+
+		# Check for special tile effects after moving
+		_check_tile_effects(direction)
 		return true
 
+	# If sliding and hit a wall, stop sliding
+	if is_sliding:
+		is_sliding = false
+		_slide_direction = Vector2i.ZERO
+
 	return false
+
+
+## Checks for special tile effects at the current position.
+## @param move_direction The direction the player moved to get here
+func _check_tile_effects(move_direction: Vector2i) -> void:
+	if not arena:
+		return
+
+	# Check for hole - instant death
+	if arena.is_hole(grid_pos):
+		_log("Fell into hole at %s" % grid_pos)
+		kill()
+		return
+
+	# Check for ice - start sliding
+	if arena.is_ice(grid_pos):
+		if not is_sliding:
+			_log("Started sliding on ice at %s" % grid_pos, GameConstants.LogLevel.DEBUG)
+		is_sliding = true
+		_slide_direction = move_direction
+	else:
+		# Stopped sliding (reached non-ice tile)
+		if is_sliding:
+			_log("Stopped sliding at %s" % grid_pos, GameConstants.LogLevel.DEBUG)
+		is_sliding = false
+		_slide_direction = Vector2i.ZERO
+
+
+## Processes continuous pixel-based movement (FREE movement mode).
+## The player's hitbox radius is kept clear of all walls via _clamp_to_walls,
+## so the visual shape never overlaps a wall. Corner correction nudges the
+## player perpendicular to their direction when they clip a wall corner.
+func _handle_free_movement(delta: float) -> void:
+	if not arena:
+		return
+
+	var direction: Vector2i
+	if is_sliding and _slide_direction != Vector2i.ZERO:
+		direction = _slide_direction
+	else:
+		direction = _get_movement_direction()
+
+	if direction == Vector2i.ZERO:
+		if is_sliding:
+			is_sliding = false
+			_slide_direction = Vector2i.ZERO
+		return
+
+	facing_direction = direction
+
+	var effective_speed := speed_multiplier
+	if active_curse == CurseType.SPEED:
+		effective_speed *= GameConstants.CURSE_SPEED_MULTIPLIER
+	if is_sliding:
+		effective_speed *= 0.5
+	var pixel_speed := float(GameConstants.TILE_SIZE) / (GameConstants.PLAYER_MOVE_COOLDOWN * effective_speed)
+
+	var new_position := position + Vector2(direction) * pixel_speed * delta
+
+	# Kick bomb before clamping — check the intended tile first
+	var intended_grid := GameConstants.world_to_grid(new_position)
+	if intended_grid != grid_pos and has_kick and arena.has_bomb_at(intended_grid):
+		arena.kick_bomb(intended_grid, direction)
+		return
+
+	# If moving toward a wall, apply corner nudge in the perpendicular axis
+	var wall_ahead := grid_pos + direction
+	if not arena.is_in_bounds(wall_ahead) or not arena.is_tile_walkable(wall_ahead):
+		if is_sliding:
+			is_sliding = false
+			_slide_direction = Vector2i.ZERO
+		new_position += _corner_nudge(direction, pixel_speed, delta)
+
+	# Clamp so hitbox edge never enters a wall tile
+	new_position = _clamp_to_walls(new_position)
+
+	# Update logical grid position if center crossed into a new walkable tile
+	var new_grid_pos := GameConstants.world_to_grid(new_position)
+	if new_grid_pos != grid_pos:
+		if arena.is_tile_walkable(new_grid_pos):
+			grid_pos = new_grid_pos
+			_check_tile_effects(direction)
+
+	position = new_position
+
+
+## Returns a perpendicular nudge vector that steers the player toward their
+## tile's center axis when they are slightly clipping a wall corner.
+func _corner_nudge(move_dir: Vector2i, speed: float, delta: float) -> Vector2:
+	var tile_center := GameConstants.grid_to_world(grid_pos)
+	var threshold := GameConstants.TILE_SIZE * GameConstants.CORNER_CORRECTION_RATIO
+
+	var offset: float
+	var nudge := Vector2.ZERO
+
+	if move_dir.x != 0:
+		offset = position.y - tile_center.y
+		if abs(offset) < threshold and abs(offset) > 0.5:
+			nudge.y = -sign(offset) * speed * delta
+	else:
+		offset = position.x - tile_center.x
+		if abs(offset) < threshold and abs(offset) > 0.5:
+			nudge.x = -sign(offset) * speed * delta
+
+	return nudge
+
+
+## Clamps new_pos so the player's hitbox circle (radius = PLAYER_HITBOX_SIZE/2)
+## does not overlap any wall tile adjacent to the player's current grid_pos.
+func _clamp_to_walls(new_pos: Vector2) -> Vector2:
+	var r := GameConstants.PLAYER_HITBOX_SIZE * 0.5
+	var ts := float(GameConstants.TILE_SIZE)
+	var result := new_pos
+
+	# Right wall
+	var right := Vector2i(grid_pos.x + 1, grid_pos.y)
+	if not arena.is_in_bounds(right) or not arena.is_tile_walkable(right):
+		result.x = minf(result.x, right.x * ts - r)
+
+	# Left wall
+	var left := Vector2i(grid_pos.x - 1, grid_pos.y)
+	if not arena.is_in_bounds(left) or not arena.is_tile_walkable(left):
+		result.x = maxf(result.x, (left.x + 1) * ts + r)
+
+	# Down wall
+	var down := Vector2i(grid_pos.x, grid_pos.y + 1)
+	if not arena.is_in_bounds(down) or not arena.is_tile_walkable(down):
+		result.y = minf(result.y, down.y * ts - r)
+
+	# Up wall
+	var up_tile := Vector2i(grid_pos.x, grid_pos.y - 1)
+	if not arena.is_in_bounds(up_tile) or not arena.is_tile_walkable(up_tile):
+		result.y = maxf(result.y, (up_tile.y + 1) * ts + r)
+
+	return result
 
 
 # =============================================================================

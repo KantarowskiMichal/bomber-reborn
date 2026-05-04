@@ -73,6 +73,9 @@ var _explode_on_landing := false
 ## Pending color to apply when the node is ready
 var _pending_color: Color = Color(-1, -1, -1, -1)  # Invalid color means not set
 
+## Active tween for smooth motion animation
+var _tween: Tween = null
+
 ## Reference to the color rect for visual coloring
 @onready var _color_rect: ColorRect = $ColorRect
 
@@ -127,6 +130,20 @@ func start_moving(direction: Vector2i, arena: Arena) -> void:
 	_try_continue_moving()
 
 
+## Stops kick movement immediately (e.g. when a conveyor takes over).
+func stop_moving() -> void:
+	_stop_moving()
+
+
+## Smoothly animates the bomb's visual position to target over duration seconds.
+## Used by conveyor and kick/fly systems in smooth motion mode.
+func smooth_move_to(target: Vector2, duration: float) -> void:
+	if _tween:
+		_tween.kill()
+	_tween = create_tween()
+	_tween.tween_property(self, "position", target, duration)
+
+
 # =============================================================================
 # PRIVATE
 # =============================================================================
@@ -156,8 +173,11 @@ func _try_continue_moving() -> void:
 		# Move to the next tile
 		var old_pos := grid_pos
 		grid_pos = next_pos
-		position = GameConstants.grid_to_world(next_pos)
 		is_moving = true
+		if GameConstants.MOVEMENT_MODE != GameConstants.MovementMode.SNAP:
+			smooth_move_to(GameConstants.grid_to_world(next_pos), GameConstants.BOMB_MOVE_DELAY)
+		else:
+			position = GameConstants.grid_to_world(next_pos)
 		moved.emit(old_pos, next_pos)
 
 		# Schedule next move step after delay
@@ -246,7 +266,10 @@ func _try_continue_flying() -> void:
 func _fly_to_position(new_pos: Vector2i) -> void:
 	var old_pos := grid_pos
 	grid_pos = new_pos
-	position = GameConstants.grid_to_world(new_pos)
+	if GameConstants.MOVEMENT_MODE != GameConstants.MovementMode.SNAP:
+		smooth_move_to(GameConstants.grid_to_world(new_pos), GameConstants.BOMB_FLY_DELAY)
+	else:
+		position = GameConstants.grid_to_world(new_pos)
 	_fly_tiles_remaining -= 1
 	moved.emit(old_pos, new_pos)
 
@@ -258,7 +281,10 @@ func _fly_to_position(new_pos: Vector2i) -> void:
 func _fly_over_position(new_pos: Vector2i) -> void:
 	var old_pos := grid_pos
 	grid_pos = new_pos
-	position = GameConstants.grid_to_world(new_pos)
+	if GameConstants.MOVEMENT_MODE != GameConstants.MovementMode.SNAP:
+		smooth_move_to(GameConstants.grid_to_world(new_pos), GameConstants.BOMB_FLY_DELAY)
+	else:
+		position = GameConstants.grid_to_world(new_pos)
 	# Don't decrement _fly_tiles_remaining - bouncing doesn't count as distance
 	moved.emit(old_pos, new_pos)
 
@@ -270,7 +296,10 @@ func _fly_over_position(new_pos: Vector2i) -> void:
 func _fly_to_position_and_land(new_pos: Vector2i) -> void:
 	var old_pos := grid_pos
 	grid_pos = new_pos
-	position = GameConstants.grid_to_world(new_pos)
+	if GameConstants.MOVEMENT_MODE != GameConstants.MovementMode.SNAP:
+		smooth_move_to(GameConstants.grid_to_world(new_pos), GameConstants.BOMB_FLY_DELAY)
+	else:
+		position = GameConstants.grid_to_world(new_pos)
 	moved.emit(old_pos, new_pos)
 
 	# Land after a delay to show the final movement
