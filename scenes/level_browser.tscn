@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bsc8xh8cki2xc"]
+
+[ext_resource type="Script" path="res://scripts/level_browser.gd" id="1_browser"]
+
+[node name="LevelBrowser" type="Node2D"]
+script = ExtResource("1_browser")
