@@ -1,0 +1,17 @@
+[gd_scene load_steps=2 format=3 uid="uid://dkvrp1wm750to"]
+
+[ext_resource type="Script" path="res://scripts/conveyor.gd" id="1_conveyor"]
+
+[node name="Conveyor" type="Node2D"]
+z_index = -1
+script = ExtResource("1_conveyor")
+
+[node name="ColorRect" type="ColorRect" parent="."]
+offset_right = 64.0
+offset_bottom = 64.0
+color = Color(0.4, 0.35, 0.3, 1)
+
+[node name="Arrow" type="Polygon2D" parent="."]
+position = Vector2(32, 32)
+color = Color(0.6, 0.55, 0.5, 1)
+polygon = PackedVector2Array(0, -20, 12, 0, 6, 0, 6, 20, -6, 20, -6, 0, -12, 0)
